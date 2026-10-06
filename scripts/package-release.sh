@@ -17,7 +17,7 @@ fi
 
 mkdir -p bridge/build
 cc -Wall -Wextra -O2 bridge/test_logic.c -o bridge/build/test_logic
-bridge/build/test_logic | tail -n 1
+bridge/build/test_logic
 x86_64-w64-mingw32-gcc -O2 -static -Wall -Wextra bridge/fs25_t128_leds.c -o bridge/build/fs25_t128_leds.exe -lhid -lsetupapi
 (cd fs-mod && ./package.sh >/dev/null)
 

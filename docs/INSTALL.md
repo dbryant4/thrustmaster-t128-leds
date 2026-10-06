@@ -47,28 +47,31 @@ window or press Ctrl+C in it.
 
 | In the game | LEDs |
 |---|---|
+| Engine running at low RPM | First LED blinks slowly |
 | Engine RPM | 1 / 2 / 3 / 4 LEDs at 55 / 68 / 80 / 92% of the vehicle's max RPM |
 | RPM at 95% of max or more | All four flash |
 | Right turn signal | Bar fills left to right |
 | Left turn signal | Bar drains right to left |
 | Hazards | All four blink |
-| On foot, paused, or game closed | Off |
+| Engine off, on foot, paused, or game closed | Off |
 
 Tractors spend a lot of time near max RPM. If the flashing gets tiresome, edit
 `Start T128 LEDs.bat` and change the line `fs25_t128_leds.exe %*` to
-`fs25_t128_leds.exe --no-flash %*`; the bar then stops at four LEDs.
+`fs25_t128_leds.exe --no-flash %*`; the bar then stops at four LEDs. `--no-idle-blink` in the
+same place turns off the slow blink at low RPM.
 
 ## If it does not work
 
 - **`wheel missing`:** the bridge found no wheel in PC mode. Check the Thrustmaster driver is
   installed and the wheel shows up in Windows as "Thrustmaster Advance Racer".
-- **`game waiting`:** the mod is not writing. Check it is ticked for the savegame, then look for
-  lines starting `T128Telemetry` in `Documents\My Games\FarmingSimulator2025\log.txt`.
-- **The log says `no Thrustmaster wheel connected, telemetry off`** although the wheel is plugged
-  in: the mod switches itself off when the game lists no Thrustmaster controller, and the game is
-  calling your wheel something unexpected. The line above it in the log, `game controllers: ...`,
-  shows the names. Please report the name; as a workaround, unzip the mod and add a lower-case
-  piece of the name to `DEVICE_NAMES` at the top of `T128Telemetry.lua`.
+- **`game waiting` together with `wheel missing`:** expected. The mod stays off until the bridge
+  has the wheel.
+- **`game waiting` with `wheel ok`:** the mod is not writing. Check it is ticked for the savegame
+  and that the game is not paused, then look for lines starting `T128Telemetry` in
+  `Documents\My Games\FarmingSimulator2025\log.txt`. It prints
+  `idle until the T128 LED bridge reports the wheel` when the savegame loads and
+  `wheel available, writing ...` a second or two after the bridge finds the wheel. If it stays
+  idle, please report it along with those log lines.
 - **`wheel ok` but the LEDs stay dark while the game runs:** the wheel may not accept LED data
   while the game is using it. This is the main untested point; please report it.
 
@@ -76,14 +79,18 @@ Tractors spend a lot of time near max RPM. If the flashing gets tiresome, edit
 
 - The bridge sends LED data to the wheel only while it runs. It writes no setting to the wheel
   and installs nothing.
-- The mod writes `telemetry.xml` in `modSettings\FS25_T128Telemetry` in your FS25 profile, and
-  only while the game sees a Thrustmaster wheel. It changes nothing in the game itself.
+- While it runs, the bridge keeps a small file, `bridge.xml`, in
+  `modSettings\FS25_T128Telemetry` in your FS25 profile to tell the mod it has the wheel. It
+  deletes the file when it closes.
+- The mod writes `telemetry.xml` in the same folder, and only while the bridge is running with
+  the wheel connected. It changes nothing in the game itself.
 
 ## Multiplayer
 
 Everyone who joins a game needs the same mods the host has active, as identical files, so the
-other players need this `FS25_T128Telemetry.zip` too. They do not need the bridge or a wheel;
-without a Thrustmaster wheel the mod does nothing. Multiplayer is untested.
+other players need this `FS25_T128Telemetry.zip` too. They do not need the bridge or a wheel.
+Without the bridge the mod does nothing on their PC: it writes no file and does not touch the
+game. Multiplayer is untested.
 
 ## Uninstall
 
@@ -96,5 +103,5 @@ installed.
 - The RPM thresholds were chosen on the bench and will probably want tuning for tractors.
 - The wheel's firmware only draws a bar starting from the left LED, so a left signal cannot light
   just the left LEDs.
-- The mod recognises the wheel by name, so another Thrustmaster device (pedals, shifter,
-  joystick) also keeps it switched on.
+- The bridge and the mod must be the same version: 0.1.0 of either does not work with 0.1.1 of
+  the other.

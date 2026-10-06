@@ -68,6 +68,7 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
 
 ### Behaviour (validated in `t128-c/t128_signals_demo.c`)
 - RPM: 1/2/3/4 LEDs at 55/68/80/92% of max RPM; firmware flash at ≥95%.
+- Idle (bridge only, not in the demo, not yet seen on hardware): engine running below 55% blinks LED 1, 1 s on / 1 s off.
 - Right signal: 1→2→3→4→off, 130 ms steps (moves left→right).
 - Left signal: 4→3→2→1→off (bar drains right→left).
 - Hazards: all on/off, 380 ms half-period.
@@ -78,13 +79,16 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
   `x86_64-w64-mingw32-gcc -O2 -static file.c -o file.exe -lhid -lsetupapi`.
   `t128_signals_demo.c` is the reference LED driver to port into `bridge/`.
 - `tools/`: Mac/Linux probes (pyusb/hidapi scripts, WebHID page) used during reverse engineering.
-- `bridge/` (v0.1.0, LED stage only, C): `fs25_t128_leds.c` polls the mod's file and drives the LEDs;
+- `bridge/` (v0.1.1, LED stage only, C): `fs25_t128_leds.c` polls the mod's file and drives the LEDs;
   `t128_hid.h` is the Windows HID side, `t128_logic.h` the portable framing/parser/LED logic.
   `--fake` plays a built-in telemetry loop. Tests: `cc bridge/test_logic.c -o /tmp/t && /tmp/t`.
-- `fs-mod/FS25_T128Telemetry/` (v0.1.0): writes `modSettings/FS25_T128Telemetry/telemetry.xml` at 20 Hz via
+- `fs-mod/FS25_T128Telemetry/` (v0.1.1): writes `modSettings/FS25_T128Telemetry/telemetry.xml` at 20 Hz via
   `io.open` (fallback `createXMLFile`/`saveXMLFile`): `<telemetry seq active motor rpm minRpm maxRpm speed turn/>`
-  (turn: 0 off, 1 left, 2 right, 3 hazard). Writes only while `getGamepadName()` lists a controller matching
-  `DEVICE_NAMES` (thrustmaster / t128 / advance racer), rechecked every 2 s. Mock test: `lua fs-mod/tests/run_mock.lua /tmp/fs25-mock`.
+  (turn: 0 off, 1 left, 2 right, 3 hazard). Must stay inert for players without the wheel
+  (every multiplayer player loads the mod): it is on only while the bridge's heartbeat `bridge.xml`
+  (`<bridge version="1" beat wheel/>`, rewritten every 500 ms, read once a second with the XML functions)
+  keeps changing and says `wheel="1"`. Controller-name matching (`DEVICE_NAMES`) is only the fallback
+  when `bridge.xml` cannot be read. Mock test: `lua fs-mod/tests/run_mock.lua /tmp/fs25-mock`.
 - Release: `scripts/package-release.sh` builds `dist/thrustmaster-t128-leds-<version>-windows.zip` (bridge exe,
   launcher, mod zip, `docs/INSTALL.md`, licence). Version lives in three places that must agree:
   `VERSION` in `bridge/fs25_t128_leds.c`, `modDesc.xml` and `T128Telemetry.VERSION` (four-part form).

@@ -1,6 +1,6 @@
 # Farming Simulator 25 → Thrustmaster T128 rev LEDs
 
-**Version 0.1.0**
+**Version 0.1.1**
 
 Shows Farming Simulator 25 engine RPM, turn signals and hazards on the four rev LEDs of a
 Thrustmaster T128 (Xbox model). The wheel has no documented LED API and Fanaleds does not
@@ -29,16 +29,19 @@ games closed), and whether the mod loads cleanly in your game version.
 
 | Game state | LEDs |
 |---|---|
+| Engine running, RPM below 55% of max | First LED blinks slowly, 1 s on / 1 s off. `--no-idle-blink` keeps it dark |
 | Engine RPM | 1 / 2 / 3 / 4 LEDs at 55 / 68 / 80 / 92% of the vehicle's max RPM |
 | RPM ≥ 95% of max | All four flash (done by the wheel firmware). `--no-flash` holds 4 LEDs instead |
 | Right turn signal | Bar fills left → right: 1, 2, 3, 4, off, 130 ms per step |
 | Left turn signal | Bar drains right → left: 4, 3, 2, 1, off |
 | Hazards | All four blink, 380 ms on / 380 ms off |
-| On foot, game paused or closed | Off |
+| Engine off, on foot, game paused or closed | Off |
 
-The mod only runs while the game sees a Thrustmaster wheel. It looks at the game's controller
-list every 2 seconds; with no wheel it writes nothing, and it starts again by itself when the
-wheel is plugged in.
+The mod does nothing unless the bridge is running on the same PC and has the wheel. That
+matters in multiplayer, where every player has to load the mod: for players without the wheel
+it writes no file, creates no folder and never queries the vehicle. It switches on within a
+couple of seconds of the bridge finding the wheel, and off again when the wheel is unplugged
+or the bridge closes.
 
 Signals override RPM. The firmware only draws a bar starting from LED 1, so there is no
 per-LED control and a left signal can't light the left LEDs only.
@@ -70,10 +73,10 @@ is the full guide; in short:
    game driving wheel ok      rpm 1450/2200   17 km/h  signal LEFT   LEDs ###.
    ```
 
-   `game waiting` means the telemetry file is missing or not changing, which includes the mod
-   having switched itself off because the game sees no Thrustmaster wheel. `wheel missing`
-   means no `044f:b696` device accepted a packet. Both recover on their own when the game or
-   wheel comes back. Ctrl+C clears the LEDs and exits.
+   `wheel missing` means no `044f:b696` device accepted a packet. `game waiting` means the
+   telemetry file is missing or not changing: the game is closed or paused, the mod is not
+   loaded, or the wheel is missing (the mod stays off without it). Both recover on their own
+   when the game or wheel comes back. Ctrl+C clears the LEDs and exits.
 
 Options:
 
@@ -81,16 +84,20 @@ Options:
 |---|---|
 | `--fake` | Ignore the game and play the built-in loop |
 | `--no-flash` | Cap the RPM bar at 4 LEDs. Useful because tractors spend a lot of time near max RPM |
+| `--no-idle-blink` | Keep the LEDs dark at low RPM instead of slowly blinking the first one |
 | `--file PATH` | Read telemetry from another path. The default is `Documents\My Games\FarmingSimulator2025\modSettings\FS25_T128Telemetry\telemetry.xml` |
 
 If the mod does not appear in the game or `game waiting` never clears, look in
 `Documents\My Games\FarmingSimulator2025\log.txt` for lines mentioning `T128Telemetry`:
 
-- `game controllers: ...` lists the controller names the game reports, followed by either
-  `wheel found, writing <path>` or `no Thrustmaster wheel connected, telemetry off`.
-- If the wheel is plugged in but the mod says it is not, the game is calling it something
-  unexpected. Add a lower-case piece of the listed name to `DEVICE_NAMES` at the top of
-  `T128Telemetry.lua` (it matches `thrustmaster`, `t128` and `advance racer` by default).
+- `idle until the T128 LED bridge reports the wheel` is printed when the savegame loads,
+  then `wheel available, writing <path>` once the bridge is running with the wheel, and
+  `wheel not available, telemetry off` when it goes away.
+- If it stays idle while the bridge shows `wheel ok`, the mod is not seeing the bridge's
+  `bridge.xml`. Check that the bridge and the game use the same folder (`--file` moves both).
+- `going by controller names instead` means this game version could not read `bridge.xml`.
+  The mod then looks for a controller whose name contains `thrustmaster`, `t128` or
+  `advance racer` (`DEVICE_NAMES` at the top of `T128Telemetry.lua`).
 - A `descVersion` complaint means the value in `modDesc.xml` (currently 111, which FS25 1.24
   accepts) is newer than your game; update the game or lower the value.
 
@@ -98,12 +105,26 @@ If the mod does not appear in the game or `game waiting` never clears, look in
 
 ```
 FS25 (Lua mod) ──► telemetry.xml ──► fs25_t128_leds.exe ──► T128 HID (0x60 packets) ──► LEDs
-                   20 writes/s        polls 20 times/s
+       ▲           20 writes/s        polls 20 times/s
+       └────────── bridge.xml ◄────── "running, wheel connected", twice a second
 ```
 
-FS25 mod scripts cannot open sockets or talk to USB devices, so the mod rewrites a one-line
-file (with `io.open`, falling back to the game's XML functions if that is refused), and detects
-the wheel by name from the game's controller list:
+FS25 mod scripts cannot open sockets or talk to USB devices, so the two sides talk through
+two small files in `modSettings\FS25_T128Telemetry`.
+
+The bridge can see the wheel on USB and the mod cannot, so the bridge tells the mod whether
+there is anything to do. While it runs it rewrites `bridge.xml`:
+
+```xml
+<bridge version="1" beat="42" wheel="1"/>
+```
+
+The mod reads it once a second and is on only while `beat` keeps changing and `wheel` is 1.
+No file, a file left behind by a crashed bridge, or `wheel="0"` all mean off. The bridge
+deletes the file when it exits.
+
+While it is on, the mod rewrites a one-line telemetry file (with `io.open`, falling back to
+the game's XML functions if that is refused):
 
 ```xml
 <telemetry seq="9" active="1" motor="1" rpm="1450" minRpm="850" maxRpm="2200" speed="17" turn="2"/>
@@ -218,9 +239,9 @@ The Python probes need `pip install pyusb` (`tm_mode_switch.py`, `gip_*.py`) or
 - It is unknown whether the first telemetry field (`0x0854` = 2132) is a max-RPM value. If it
   is, the thresholds above rescale with it.
 - Signal animation steps land on the bridge's 50 ms tick, so a 130 ms step is really 100–150 ms.
-- The mod recognises the wheel by its controller name, and that name has not been checked in
-  the game yet. A different Thrustmaster device (pedals, shifter, joystick) also counts as a
-  match.
+- Multiplayer is untested. The mod is built to be inert for players without the wheel, but
+  that has only been checked against a mock of the game.
+- If a bridge crashes, the mod keeps writing for up to four seconds before it notices.
 - The mod icon is a generated placeholder.
 
 ## Roadmap

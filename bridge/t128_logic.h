@@ -72,6 +72,15 @@ static int telemetry_parse(const char *xml, Telemetry *t) {
     return 1;
 }
 
+// The heartbeat the bridge leaves beside the telemetry file (bridge.xml). The mod writes
+// telemetry only while beat keeps changing and wheel is 1, so on a PC without the bridge or
+// without the wheel (other players in a multiplayer game) the mod does nothing.
+// XML because that is the one kind of file the game's Lua can read back.
+static int bridge_beat_format(char *out, size_t cap, int beat, int wheel) {
+    return snprintf(out, cap, "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\"?>\n"
+                              "<bridge version=\"1\" beat=\"%d\" wheel=\"%d\"/>\n", beat, wheel ? 1 : 0);
+}
+
 // Stand-in for the game: a 40 s loop of an RPM sweep, right signal, left signal, hazards, idle.
 static void telemetry_fake(unsigned nowMs, Telemetry *t) {
     unsigned ph = nowMs % 40000;
@@ -113,20 +122,32 @@ static int signal_leds(int turn, unsigned phaseMs) {
     }
 }
 
+#define IDLE_BLINK_MS 1000   // LED 1 on for this long, then off for this long
+
 typedef struct {
     int turn;            // signal currently animating
     unsigned turnStart;  // when it started, ms
     int rpmLit;          // last RPM level, for hysteresis
+    int idling;          // engine running below the first RPM threshold
+    unsigned idleStart;  // when that began, ms
 } LedState;
 
+typedef struct {
+    int allowFlash;      // let the firmware flash near max RPM
+    int idleBlink;       // blink LED 1 slowly while the engine runs below the bar's first step
+} LedOptions;
+
 // Returns LEDs to light: 0-4, or 5 for the firmware flash. Signals override RPM.
-static int led_update(LedState *s, const Telemetry *t, unsigned nowMs, int allowFlash) {
-    if (!t->active) { s->turn = TURN_OFF; s->rpmLit = 0; return 0; }
+static int led_update(LedState *s, const Telemetry *t, unsigned nowMs, LedOptions opt) {
+    if (!t->active) { s->turn = TURN_OFF; s->rpmLit = 0; s->idling = 0; return 0; }
     if (t->turn != s->turn) { s->turn = t->turn; s->turnStart = nowMs; }
-    if (s->turn != TURN_OFF) { s->rpmLit = 0; return signal_leds(s->turn, nowMs - s->turnStart); }
-    if (!t->motor || t->maxRpm <= 0) { s->rpmLit = 0; return 0; }
-    s->rpmLit = rpm_leds((double)t->rpm / t->maxRpm, s->rpmLit, allowFlash);
-    return s->rpmLit;
+    if (s->turn != TURN_OFF) { s->rpmLit = 0; s->idling = 0; return signal_leds(s->turn, nowMs - s->turnStart); }
+    if (!t->motor || t->maxRpm <= 0) { s->rpmLit = 0; s->idling = 0; return 0; }
+    s->rpmLit = rpm_leds((double)t->rpm / t->maxRpm, s->rpmLit, opt.allowFlash);
+    if (s->rpmLit > 0 || !opt.idleBlink) { s->idling = 0; return s->rpmLit; }
+    // "Engine is running": starts lit, so starting the engine shows at once.
+    if (!s->idling) { s->idling = 1; s->idleStart = nowMs; }
+    return ((nowMs - s->idleStart) / IDLE_BLINK_MS) % 2 ? 0 : 1;
 }
 
 #endif

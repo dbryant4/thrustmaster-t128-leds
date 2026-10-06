@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <modDesc descVersion="111">
     <author>Derrick Bryant</author>
-    <version>0.1.0.0</version>
+    <version>0.1.1.0</version>
     <title>
         <en>T128 LED Telemetry</en>
     </title>
     <description>
-        <en><![CDATA[Writes engine RPM and turn signal state of the vehicle you are driving to modSettings/FS25_T128Telemetry/telemetry.xml. An external bridge app reads that file and drives the rev LEDs of a Thrustmaster T128 wheel.]]></en>
+        <en><![CDATA[Writes engine RPM and turn signal state of the vehicle you are driving to modSettings/FS25_T128Telemetry/telemetry.xml. An external bridge app reads that file and drives the rev LEDs of a Thrustmaster T128 wheel.
+
+Does nothing unless that bridge is running on the same PC with the wheel connected, so players without the wheel (for example the others in a multiplayer game) are not affected. PC only.]]></en>
     </description>
     <iconFilename>icon_T128Telemetry.dds</iconFilename>
     <multiplayer supported="true"/>

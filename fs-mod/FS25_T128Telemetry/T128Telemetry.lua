@@ -3,18 +3,27 @@
 -- The Windows bridge (bridge/fs25_t128_leds.c) polls that file and drives the wheel LEDs.
 -- Mod scripts have no sockets, so a small file is the only way out of the game.
 -- The game API used here matches what the sister mod FS25_MozaYokeLink uses in-game.
--- The mod switches itself off (no file writes) while the game sees no Thrustmaster wheel.
+--
+-- In multiplayer every player has to load this mod, wheel or not. So it does nothing at
+-- all (no folder, no file, no vehicle queries) until the bridge on the same PC says, through
+-- bridge.xml, that it is running and has the wheel. See "wheel availability" below.
 
 T128Telemetry = {}
 
-T128Telemetry.VERSION = "0.1.0.0"   -- same as modDesc.xml and the bridge (checked by scripts/package-release.sh)
+T128Telemetry.VERSION = "0.1.1.0"   -- same as modDesc.xml and the bridge (checked by scripts/package-release.sh)
 T128Telemetry.WRITE_INTERVAL_MS = 50
 T128Telemetry.FOLDER = "modSettings/FS25_T128Telemetry/"
 T128Telemetry.FILE = "telemetry.xml"
 
--- How often to look for the wheel, and lower-case fragments of the controller names
--- that count as one. The names the game reports are printed to log.txt on load.
-T128Telemetry.DEVICE_CHECK_INTERVAL_MS = 2000
+-- The bridge rewrites bridge.xml twice a second: <bridge version="1" beat="N" wheel="0|1"/>.
+T128Telemetry.BRIDGE_FILE = "bridge.xml"
+T128Telemetry.BRIDGE_FORMAT = 1
+T128Telemetry.CHECK_INTERVAL_MS = 1000
+T128Telemetry.BRIDGE_MISSED_CHECKS = 3       -- beat unchanged for this many checks: bridge gone
+T128Telemetry.BRIDGE_UNREADABLE_CHECKS = 5   -- file there but unreadable this often: stop asking
+
+-- Only used when this game cannot read bridge.xml: lower-case fragments of the
+-- controller names that count as the wheel.
 T128Telemetry.DEVICE_NAMES = {"thrustmaster", "t128", "advance racer"}
 
 -- Values written to the "turn" attribute. Kept separate from the game's own
@@ -26,46 +35,67 @@ T128Telemetry.TURN_HAZARD = 3
 
 function T128Telemetry:loadMap()
     self.timer = 0
-    self.deviceTimer = 0
+    self.checkTimer = 0
     self.seq = 0
+    self.folder = nil
     self.path = nil
     self.xml = nil
     self.writeMethod = nil
-    self.enabled = nil
+    self.enabled = false
 
-    if g_dedicatedServerInfo ~= nil then
+    self.bridgeReader = nil
+    self.lastBeat = nil
+    self.bridgeMissed = T128Telemetry.BRIDGE_MISSED_CHECKS
+    self.bridgeUnreadable = 0
+    self.bridgeHasWheel = false
+
+    if g_dedicatedServer ~= nil or g_dedicatedServerInfo ~= nil or getUserProfileAppPath == nil then
         return
     end
 
-    local profile = getUserProfileAppPath()
-    createFolder(profile .. "modSettings/")
-    createFolder(profile .. T128Telemetry.FOLDER)
-
-    self.path = profile .. T128Telemetry.FOLDER .. T128Telemetry.FILE
-    print("T128Telemetry " .. T128Telemetry.VERSION .. ": game controllers: " .. T128Telemetry.listControllers())
-    self:setEnabled(T128Telemetry.isWheelConnected())
+    self.folder = getUserProfileAppPath() .. T128Telemetry.FOLDER
+    self.path = self.folder .. T128Telemetry.FILE
+    self.bridgeReader = T128Telemetry.chooseBridgeReader()
+    if self.bridgeReader ~= nil then
+        print("T128Telemetry " .. T128Telemetry.VERSION .. ": idle until the T128 LED bridge reports the wheel")
+    else
+        print("T128Telemetry " .. T128Telemetry.VERSION .. ": this game cannot read " .. T128Telemetry.BRIDGE_FILE
+              .. "; going by controller names instead: " .. T128Telemetry.listControllers())
+    end
+    self:setEnabled(self:isWheelAvailable())
 end
 
 function T128Telemetry:deleteMap()
     if self.path ~= nil and self.enabled then
-        self:write(0, 0, 0, 0, 0, 0, T128Telemetry.TURN_OFF)
+        pcall(self.write, self, 0, 0, 0, 0, 0, 0, T128Telemetry.TURN_OFF)
     end
     if self.xml ~= nil then
-        delete(self.xml)
+        pcall(delete, self.xml)
         self.xml = nil
     end
     self.path = nil
+    self.enabled = false
 end
 
+-- Every player in a multiplayer game runs this each frame, so a fault must not repeat:
+-- the first error is logged and the mod stays off for the rest of the session.
 function T128Telemetry:update(dt)
     if self.path == nil then
         return
     end
+    local ok, err = pcall(self.step, self, dt)
+    if not ok then
+        print("T128Telemetry: stopped after an error: " .. tostring(err))
+        self.path = nil
+        self.enabled = false
+    end
+end
 
-    self.deviceTimer = self.deviceTimer + dt
-    if self.deviceTimer >= T128Telemetry.DEVICE_CHECK_INTERVAL_MS then
-        self.deviceTimer = 0
-        self:setEnabled(T128Telemetry.isWheelConnected())
+function T128Telemetry:step(dt)
+    self.checkTimer = self.checkTimer + dt
+    if self.checkTimer >= T128Telemetry.CHECK_INTERVAL_MS then
+        self.checkTimer = 0
+        self:setEnabled(self:isWheelAvailable())
     end
     if not self.enabled then
         return
@@ -116,17 +146,112 @@ function T128Telemetry:setEnabled(enabled)
     self.enabled = enabled
     self.timer = 0
     if enabled then
-        print("T128Telemetry: wheel found, writing " .. self.path)
+        if createFolder ~= nil then
+            createFolder(getUserProfileAppPath() .. "modSettings/")
+            createFolder(self.folder)
+        end
+        print("T128Telemetry: wheel available, writing " .. self.path)
     else
-        print("T128Telemetry: no Thrustmaster wheel connected, telemetry off")
+        print("T128Telemetry: wheel not available, telemetry off")
     end
 end
 
--- True if any controller the game knows about looks like the wheel. If the engine
--- cannot list controllers at all, assume it is there rather than never working.
-function T128Telemetry.isWheelConnected()
+---------------------------------------------------------------------------
+-- wheel availability
+---------------------------------------------------------------------------
+-- The bridge is the one that can see the wheel on USB, so it decides. While it runs it
+-- rewrites bridge.xml with a counter ("beat") and whether it has the wheel. The mod is on
+-- only while that counter keeps changing and wheel is 1. No bridge, a bridge without the
+-- wheel, or a file left behind by a bridge that crashed all mean off.
+
+-- Called once a second. @return true when telemetry should be written
+function T128Telemetry:isWheelAvailable()
+    if self.bridgeReader == nil then
+        return T128Telemetry.isWheelListed()
+    end
+
+    local ok, beat, wheel = pcall(T128Telemetry.readBridge, self.folder .. T128Telemetry.BRIDGE_FILE, self.bridgeReader)
+    if not ok then
+        beat = nil
+    end
+
+    if beat == nil then
+        -- The file is there but gave nothing usable. Once is normal (the bridge was
+        -- replacing it); every time means this way of reading does not work here.
+        self.bridgeUnreadable = self.bridgeUnreadable + 1
+        if self.bridgeUnreadable >= T128Telemetry.BRIDGE_UNREADABLE_CHECKS then
+            self.bridgeReader = nil
+            print("T128Telemetry: cannot read " .. T128Telemetry.BRIDGE_FILE .. "; going by controller names instead: "
+                  .. T128Telemetry.listControllers())
+            return T128Telemetry.isWheelListed()
+        end
+        self.bridgeMissed = self.bridgeMissed + 1
+    elseif beat == false then
+        self.bridgeUnreadable = 0
+        self.lastBeat = nil
+        self.bridgeMissed = T128Telemetry.BRIDGE_MISSED_CHECKS
+    else
+        self.bridgeUnreadable = 0
+        -- Only a beat seen to change counts, so a leftover file never switches the mod on.
+        if self.lastBeat ~= nil and beat ~= self.lastBeat then
+            self.bridgeMissed = 0
+        else
+            self.bridgeMissed = self.bridgeMissed + 1
+        end
+        self.lastBeat = beat
+        self.bridgeHasWheel = wheel == 1
+    end
+
+    return self.bridgeMissed < T128Telemetry.BRIDGE_MISSED_CHECKS and self.bridgeHasWheel
+end
+
+-- The game's io.open cannot read, so bridge.xml is read with the XML functions.
+-- @return a function(path) giving beat, wheel; nil if this game offers no way
+function T128Telemetry.chooseBridgeReader()
+    if fileExists == nil then
+        return nil
+    end
+    if XMLFile ~= nil and XMLFile.loadIfExists ~= nil then
+        return function(path)
+            local xmlFile = XMLFile.loadIfExists("t128Bridge", path)
+            if xmlFile == nil then
+                return nil
+            end
+            local version, beat, wheel = xmlFile:getInt("bridge#version"), xmlFile:getInt("bridge#beat"), xmlFile:getInt("bridge#wheel")
+            xmlFile:delete()
+            return version, beat, wheel
+        end
+    end
+    if loadXMLFile ~= nil and getXMLInt ~= nil and delete ~= nil then
+        return function(path)
+            local handle = loadXMLFile("t128Bridge", path)
+            if handle == nil or handle == 0 then
+                return nil
+            end
+            local version, beat, wheel = getXMLInt(handle, "bridge#version"), getXMLInt(handle, "bridge#beat"), getXMLInt(handle, "bridge#wheel")
+            delete(handle)
+            return version, beat, wheel
+        end
+    end
+    return nil
+end
+
+-- @return beat, wheel; false when there is no file; nil when it could not be read
+function T128Telemetry.readBridge(path, reader)
+    if not fileExists(path) then
+        return false
+    end
+    local version, beat, wheel = reader(path)
+    if version ~= T128Telemetry.BRIDGE_FORMAT or type(beat) ~= "number" then
+        return nil
+    end
+    return beat, wheel
+end
+
+-- Fallback only: true if any controller the game knows about looks like the wheel.
+function T128Telemetry.isWheelListed()
     if getNumOfGamepads == nil or getGamepadName == nil then
-        return true
+        return false
     end
     for i = 0, getNumOfGamepads() - 1 do
         local name = getGamepadName(i)
@@ -153,6 +278,10 @@ function T128Telemetry.listControllers()
     return #names > 0 and table.concat(names, ", ") or "(none)"
 end
 
+---------------------------------------------------------------------------
+-- reading the vehicle
+---------------------------------------------------------------------------
+
 function T128Telemetry.getDrivenVehicle()
     local player = g_localPlayer
     if player ~= nil and player.getCurrentVehicle ~= nil then
@@ -176,6 +305,10 @@ function T128Telemetry.getTurnState(vehicle)
     end
     return T128Telemetry.TURN_OFF
 end
+
+---------------------------------------------------------------------------
+-- writing the telemetry file
+---------------------------------------------------------------------------
 
 -- seq changes on every write; the bridge uses it to tell live data from a stale file.
 function T128Telemetry:write(active, motorOn, rpm, minRpm, maxRpm, speed, turn)
