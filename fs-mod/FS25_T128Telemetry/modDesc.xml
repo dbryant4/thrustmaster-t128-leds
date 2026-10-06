@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<modDesc descVersion="92">
+    <author>Derrick Bryant</author>
+    <version>0.1.0.0</version>
+    <title>
+        <en>T128 LED Telemetry</en>
+    </title>
+    <description>
+        <en><![CDATA[Writes engine RPM and turn signal state of the vehicle you are driving to modSettings/FS25_T128Telemetry/telemetry.xml. An external bridge app reads that file and drives the rev LEDs of a Thrustmaster T128 wheel.]]></en>
+    </description>
+    <iconFilename>icon_T128Telemetry.dds</iconFilename>
+    <multiplayer supported="true"/>
+    <extraSourceFiles>
+        <sourceFile filename="T128Telemetry.lua"/>
+    </extraSourceFiles>
+</modDesc>

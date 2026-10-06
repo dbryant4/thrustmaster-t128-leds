@@ -1,0 +1,10 @@
+# Build output
+*.exe
+test_logic
+
+# Logs written by the probes and tools
+*_log.txt
+gip_log.txt
+
+.DS_Store
+__pycache__/

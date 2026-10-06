@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T128 HID probe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#e9edf0; --panel:#f7f9fa; --ink:#1c2833; --muted:#5b6b7a; --line:#c9d2d9;
+  --amber:#f2a900; --red:#d7263d; --green:#2e9e5b; --led-off:#3a444d;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#161c22;--panel:#1f272f;--ink:#e3e8ec;--muted:#93a1ad;--line:#33404b;--led-off:#2a333b}
+}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:1.6rem;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:1.05rem;font-weight:600;margin:0 0 12px}
+p{margin:0 0 10px;max-width:70ch}
+.sub{color:var(--muted)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-top:18px}
+button{font:inherit;font-weight:500;padding:8px 14px;border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer}
+button.primary{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+code,pre,.mono,input.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:12px;overflow-x:auto;margin:10px 0 0;max-height:360px}
+input[type=text]{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+.warn{border-left:4px solid var(--red);padding:8px 12px;background:var(--bg);border-radius:4px;margin:10px 0}
+.status{font-weight:500}
+/* the rev-light strip is the one bold element */
+.leds{display:flex;gap:18px;padding:18px 22px;background:#11161b;border-radius:40px;width:max-content;margin:6px 0 14px}
+.led{width:38px;height:38px;border-radius:50%;border:none;background:var(--led-off);box-shadow:inset 0 2px 4px rgba(0,0,0,.5);transition:background .12s,box-shadow .12s;padding:0}
+.led[aria-pressed=true]{background:var(--amber);box-shadow:0 0 18px var(--amber),inset 0 -3px 6px rgba(0,0,0,.25)}
+.led:nth-child(n+3)[aria-pressed=true]{background:var(--red);box-shadow:0 0 18px var(--red),inset 0 -3px 6px rgba(0,0,0,.25)}
+.hex .chg{background:var(--amber);color:#111;border-radius:2px}
+#log{max-height:220px}
+label{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+  <h1>T128 HID probe</h1>
+  <p class="sub">Reads the wheel's HID layout and sends test LED reports. Open this file in Chrome or Edge, set the wheel to PC mode (green LED), and plug it in.</p>
+  <p id="support" class="status"></p>
+
+  <section>
+    <h2>Connect</h2>
+    <div class="row">
+      <button class="primary" id="btnConnect">Connect Thrustmaster device</button>
+      <button id="btnAny">Choose from all HID devices</button>
+      <span id="devName" class="status"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Device layout</h2>
+    <p class="sub">Collections and report IDs the wheel exposes. The LED command most likely rides on an output report.</p>
+    <div class="row">
+      <button id="btnFeature" disabled>Read feature reports</button>
+      <button id="btnCopy" disabled>Copy results for Claude</button>
+    </div>
+    <pre id="layout">No device connected.</pre>
+  </section>
+
+  <section>
+    <h2>LED test</h2>
+    <div class="warn">Keep hands off the rim. These reports share a channel with force feedback commands.</div>
+    <div class="row" style="margin-bottom:10px"><label for="ledId">LED report ID</label><input type="text" id="ledId" class="mono" value="0x0a" size="5"></div>
+    <p class="sub">Thrustmaster rim format: bytes <code>00 41 cmd …</code> on the wheel's vendor output report (<code>0x0a</code> on this base). Command <code>0x02</code> takes a 16-bit LED mask, <code>0x10</code> takes brightness 0–100. Click the lights to set the mask.</p>
+    <div class="leds" role="group" aria-label="LED mask bits 0 to 3">
+      <button class="led" data-bit="0" aria-pressed="false" aria-label="Bit 0"></button>
+      <button class="led" data-bit="1" aria-pressed="false" aria-label="Bit 1"></button>
+      <button class="led" data-bit="2" aria-pressed="false" aria-label="Bit 2"></button>
+      <button class="led" data-bit="3" aria-pressed="false" aria-label="Bit 3"></button>
+    </div>
+    <div class="row">
+      <label for="mask">Mask</label>
+      <input type="text" id="mask" class="mono" value="0x0000" size="8">
+      <button id="btnSendMask" disabled>Send mask</button>
+      <button id="btnAll" disabled>All on</button>
+      <button id="btnOff" disabled>All off</button>
+      <button id="btnSweep" disabled>Sweep bits 0–15</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <label for="bright">Brightness</label>
+      <input type="range" id="bright" min="0" max="100" value="50">
+      <span id="brightVal" class="mono">50</span>
+      <button id="btnBright" disabled>Send brightness</button>
+    </div>
+    <p class="sub" style="margin-top:12px">During the sweep, note which bit lights which LED (or nothing).</p>
+  </section>
+
+  <section>
+    <h2>Raw report</h2>
+    <p class="sub">Send any output report. Bytes are padded with zeros to the report's length.</p>
+    <div class="row">
+      <label for="rawId">Report ID</label>
+      <input type="text" id="rawId" class="mono" value="0x0a" size="5">
+      <label for="rawData">Bytes</label>
+      <input type="text" id="rawData" class="mono" value="00 41 02 0f 00" size="30">
+      <button id="btnRaw" disabled>Send report</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Live input</h2>
+    <p class="sub">Last input report per ID. Highlighted bytes changed since the previous report; turn the wheel or press buttons to confirm communication.</p>
+    <pre id="input" class="hex">Waiting for input…</pre>
+  </section>
+
+  <section>
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const TM_VID = 0x044f;
+let dev = null;
+const logLines = [];
+const featureResults = [];
+const lastInput = new Map();
+let inputDirty = false;
+let sweeping = false;
+
+const hex = (n, w = 2) => n.toString(16).padStart(w, '0');
+const bytesHex = arr => Array.from(arr, b => hex(b)).join(' ');
+
+function log(msg) {
+  const line = `${new Date().toLocaleTimeString()}  ${msg}`;
+  logLines.push(line);
+  $('log').textContent = logLines.slice(-200).join('\n');
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+if (!('hid' in navigator)) {
+  $('support').textContent = 'WebHID is not available. Use Chrome or Edge on desktop and open this file directly (file://) or from localhost.';
+  $('btnConnect').disabled = $('btnAny').disabled = true;
+}
+
+function reportBytes(r) {
+  return Math.ceil(r.items.reduce((s, it) => s + it.reportSize * it.reportCount, 0) / 8);
+}
+
+function describeItems(items) {
+  return items.map(it => {
+    const u = it.usages && it.usages.length
+      ? `usages ${it.usages.slice(0, 4).map(x => hex(x, 8)).join(',')}${it.usages.length > 4 ? '…' : ''}`
+      : (it.usageMinimum != null ? `usage ${hex(it.usageMinimum, 8)}-${hex(it.usageMaximum, 8)}` : '');
+    return `${it.reportCount}x${it.reportSize}bit ${u} logical ${it.logicalMinimum}..${it.logicalMaximum}`;
+  });
+}
+
+function dumpCollections(cols, depth = 0) {
+  const pad = '  '.repeat(depth);
+  let out = '';
+  for (const c of cols) {
+    out += `${pad}Collection page 0x${hex(c.usagePage, 4)} usage 0x${hex(c.usage, 4)} type ${c.type}\n`;
+    for (const [kind, list] of [['IN', c.inputReports], ['OUT', c.outputReports], ['FEAT', c.featureReports]]) {
+      for (const r of list || []) {
+        out += `${pad}  ${kind} id 0x${hex(r.reportId)} (${reportBytes(r)} bytes)\n`;
+        for (const d of describeItems(r.items)) out += `${pad}      ${d}\n`;
+      }
+    }
+    if (c.children && c.children.length) out += dumpCollections(c.children, depth + 1);
+  }
+  return out;
+}
+
+function allReports(kind) {
+  const out = [];
+  const walk = cols => cols.forEach(c => { (c[kind] || []).forEach(r => out.push(r)); walk(c.children || []); });
+  walk(dev.collections);
+  return out;
+}
+
+function renderLayout() {
+  let s = `Device: ${dev.productName || '(no name)'}\nVID:PID ${hex(dev.vendorId, 4)}:${hex(dev.productId, 4)}\n\n`;
+  s += dumpCollections(dev.collections) || '(no collections reported)\n';
+  if (featureResults.length) s += '\nFeature report reads:\n' + featureResults.join('\n') + '\n';
+  $('layout').textContent = s;
+}
+
+async function connect(filters) {
+  try {
+    const picked = await navigator.hid.requestDevice({ filters });
+    if (!picked.length) { log('No device selected.'); return; }
+    dev = picked[0];
+    if (!dev.opened) await dev.open();
+    dev.addEventListener('inputreport', onInput);
+    $('devName').textContent = `${dev.productName || 'Device'} (${hex(dev.vendorId, 4)}:${hex(dev.productId, 4)})`;
+    log(`Opened ${dev.productName} ${hex(dev.vendorId, 4)}:${hex(dev.productId, 4)}`);
+    if (dev.vendorId === TM_VID && dev.productId !== 0xb696) log(`PID is not B696. The wheel may be in a different mode or need its driver's init sequence.`);
+    renderLayout();
+    document.querySelectorAll('button[disabled]').forEach(b => b.disabled = false);
+  } catch (e) { log(`Connect failed: ${e.message}`); }
+}
+
+$('btnConnect').onclick = () => connect([{ vendorId: TM_VID }]);
+$('btnAny').onclick = () => connect([]);
+
+navigator.hid && navigator.hid.addEventListener('disconnect', e => {
+  if (dev && e.device === dev) { log('Device disconnected.'); dev = null; $('devName').textContent = 'Disconnected'; }
+});
+
+function onInput(e) {
+  const data = new Uint8Array(e.data.buffer);
+  const prev = lastInput.get(e.reportId);
+  lastInput.set(e.reportId, { data, prev: prev ? prev.data : null, count: (prev ? prev.count : 0) + 1 });
+  if (!inputDirty) { inputDirty = true; requestAnimationFrame(renderInput); }
+}
+
+function renderInput() {
+  inputDirty = false;
+  const parts = [];
+  for (const [id, { data, prev, count }] of lastInput) {
+    const cells = Array.from(data, (b, i) => {
+      const h = hex(b);
+      return prev && prev[i] !== b ? `<span class="chg">${h}</span>` : h;
+    });
+    parts.push(`id 0x${hex(id)}  (#${count}, ${data.length} bytes)\n${cells.join(' ')}`);
+  }
+  $('input').innerHTML = parts.join('\n\n') || 'Waiting for input…';
+}
+
+$('btnFeature').onclick = async () => {
+  featureResults.length = 0;
+  const ids = [...new Set(allReports('featureReports').map(r => r.reportId))];
+  if (!ids.length) { featureResults.push('(no feature reports declared)'); }
+  for (const id of ids) {
+    try {
+      const dv = await dev.receiveFeatureReport(id);
+      featureResults.push(`FEAT 0x${hex(id)}: ${bytesHex(new Uint8Array(dv.buffer))}`);
+    } catch (e) { featureResults.push(`FEAT 0x${hex(id)}: error ${e.message}`); }
+  }
+  log(`Read ${ids.length} feature report(s).`);
+  renderLayout();
+};
+
+// Work out how to address report 0x60 on this device
+function outputTarget(reportId) {
+  const outs = allReports('outputReports');
+  const match = outs.find(r => r.reportId === reportId);
+  if (match) return { id: reportId, len: reportBytes(match), prefix: [] };
+  const zero = outs.find(r => r.reportId === 0);
+  if (zero) return { id: 0, len: reportBytes(zero), prefix: [reportId] };
+  log(`WARNING: report 0x${hex(reportId)} is not declared by this device; it will likely be ignored.`);
+  return { id: reportId, len: 63, prefix: [] };
+}
+
+async function send(reportId, bytes) {
+  if (!dev) return;
+  const t = outputTarget(reportId);
+  const body = new Uint8Array(t.len);
+  const full = [...t.prefix, ...bytes];
+  body.set(full.slice(0, t.len));
+  try {
+    await dev.sendReport(t.id, body);
+    log(`SENT id 0x${hex(t.id)} [${t.len}] ${bytesHex(body.slice(0, Math.min(12, t.len)))}${t.len > 12 ? ' …' : ''}`);
+  } catch (e) { log(`SEND FAILED id 0x${hex(t.id)}: ${e.message}`); }
+}
+
+const ledCmd = (cmd, data) => send(parseInt($('ledId').value, 16) || 0x0a, [0x00, 0x41, cmd, ...data]);
+
+function getMask() { const v = parseInt($('mask').value, 16); return isNaN(v) ? 0 : v & 0xffff; }
+function setMask(m) {
+  $('mask').value = '0x' + hex(m, 4);
+  document.querySelectorAll('.led').forEach(b => b.setAttribute('aria-pressed', String(!!(m >> +b.dataset.bit & 1))));
+}
+document.querySelectorAll('.led').forEach(b => b.onclick = () => { setMask(getMask() ^ (1 << +b.dataset.bit)); if (dev) sendMask(); });
+$('mask').onchange = () => setMask(getMask());
+
+const sendMask = () => { const m = getMask(); return ledCmd(0x02, [m & 0xff, m >> 8]); };
+$('btnSendMask').onclick = sendMask;
+$('btnAll').onclick = () => { setMask(0x000f); sendMask(); };
+$('btnOff').onclick = () => { setMask(0); sendMask(); };
+
+$('btnSweep').onclick = async () => {
+  if (sweeping) { sweeping = false; return; }
+  sweeping = true; $('btnSweep').textContent = 'Stop sweep';
+  for (let bit = 0; bit < 16 && sweeping; bit++) {
+    setMask(1 << bit); log(`Sweep: bit ${bit}`); await sendMask();
+    await new Promise(r => setTimeout(r, 900));
+  }
+  setMask(0); await sendMask();
+  sweeping = false; $('btnSweep').textContent = 'Sweep bits 0–15';
+};
+
+$('bright').oninput = () => $('brightVal').textContent = $('bright').value;
+$('btnBright').onclick = () => ledCmd(0x10, [+$('bright').value]);
+
+$('btnRaw').onclick = () => {
+  const id = parseInt($('rawId').value, 16);
+  const bytes = $('rawData').value.trim().split(/[\s,]+/).filter(Boolean).map(x => parseInt(x, 16) & 0xff);
+  if (isNaN(id)) { log('Report ID must be hex, e.g. 0x60'); return; }
+  send(id, bytes);
+};
+
+$('btnCopy').onclick = async () => {
+  let s = $('layout').textContent + '\nLive input (latest):\n';
+  for (const [id, { data, count }] of lastInput) s += `id 0x${hex(id)} #${count}: ${bytesHex(data)}\n`;
+  s += '\nLog:\n' + logLines.join('\n');
+  try { await navigator.clipboard.writeText(s); log('Copied results to clipboard.'); }
+  catch { log('Clipboard blocked. Select the Device layout and Log text manually.'); }
+};
+</script>
+</body>
+</html>
