@@ -1,6 +1,8 @@
 # Build output
+bridge/build*/
+fs-mod/dist/
+dist/
 *.exe
-test_logic
 
 # Logs written by the probes and tools
 *_log.txt

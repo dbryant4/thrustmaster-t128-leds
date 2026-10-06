@@ -2,10 +2,12 @@
 -- <profile>/modSettings/FS25_T128Telemetry/telemetry.xml about 20 times a second.
 -- The Windows bridge (bridge/fs25_t128_leds.c) polls that file and drives the wheel LEDs.
 -- Mod scripts have no sockets, so a small file is the only way out of the game.
+-- The game API used here matches what the sister mod FS25_MozaYokeLink uses in-game.
 -- The mod switches itself off (no file writes) while the game sees no Thrustmaster wheel.
 
 T128Telemetry = {}
 
+T128Telemetry.VERSION = "0.1.0.0"   -- same as modDesc.xml and the bridge (checked by scripts/package-release.sh)
 T128Telemetry.WRITE_INTERVAL_MS = 50
 T128Telemetry.FOLDER = "modSettings/FS25_T128Telemetry/"
 T128Telemetry.FILE = "telemetry.xml"
@@ -26,7 +28,9 @@ function T128Telemetry:loadMap()
     self.timer = 0
     self.deviceTimer = 0
     self.seq = 0
+    self.path = nil
     self.xml = nil
+    self.writeMethod = nil
     self.enabled = nil
 
     if g_dedicatedServerInfo ~= nil then
@@ -37,30 +41,24 @@ function T128Telemetry:loadMap()
     createFolder(profile .. "modSettings/")
     createFolder(profile .. T128Telemetry.FOLDER)
 
-    local path = profile .. T128Telemetry.FOLDER .. T128Telemetry.FILE
-    local xml = createXMLFile("t128Telemetry", path, "telemetry")
-    if xml == nil or xml == 0 then
-        print("T128Telemetry: could not create " .. path)
-        return
-    end
-    self.xml = xml
-    self.path = path
-    print("T128Telemetry: game controllers: " .. T128Telemetry.listControllers())
+    self.path = profile .. T128Telemetry.FOLDER .. T128Telemetry.FILE
+    print("T128Telemetry " .. T128Telemetry.VERSION .. ": game controllers: " .. T128Telemetry.listControllers())
     self:setEnabled(T128Telemetry.isWheelConnected())
 end
 
 function T128Telemetry:deleteMap()
+    if self.path ~= nil and self.enabled then
+        self:write(0, 0, 0, 0, 0, 0, T128Telemetry.TURN_OFF)
+    end
     if self.xml ~= nil then
-        if self.enabled then
-            self:write(0, 0, 0, 0, 0, 0, T128Telemetry.TURN_OFF)
-        end
         delete(self.xml)
         self.xml = nil
     end
+    self.path = nil
 end
 
 function T128Telemetry:update(dt)
-    if self.xml == nil then
+    if self.path == nil then
         return
     end
 
@@ -181,17 +179,55 @@ end
 
 -- seq changes on every write; the bridge uses it to tell live data from a stale file.
 function T128Telemetry:write(active, motorOn, rpm, minRpm, maxRpm, speed, turn)
-    local xml = self.xml
     self.seq = (self.seq + 1) % 1000000
-    setXMLInt(xml, "telemetry#seq", self.seq)
-    setXMLInt(xml, "telemetry#active", active)
-    setXMLInt(xml, "telemetry#motor", motorOn)
-    setXMLInt(xml, "telemetry#rpm", math.floor(rpm + 0.5))
-    setXMLInt(xml, "telemetry#minRpm", math.floor(minRpm + 0.5))
-    setXMLInt(xml, "telemetry#maxRpm", math.floor(maxRpm + 0.5))
-    setXMLInt(xml, "telemetry#speed", math.floor(speed + 0.5))
-    setXMLInt(xml, "telemetry#turn", turn)
-    saveXMLFile(xml)
+    local values = {self.seq, active, motorOn, math.floor(rpm + 0.5), math.floor(minRpm + 0.5),
+                    math.floor(maxRpm + 0.5), math.floor(speed + 0.5), turn}
+
+    -- Plain io.open first. If the game refuses it, fall back to its XML functions; both
+    -- produce the same attributes. Whichever works first is kept, so a single write that
+    -- fails because the bridge was reading the file at that instant is simply skipped.
+    if self.writeMethod ~= "xml" and self:writeWithIo(values) then
+        self.writeMethod = "io"
+    elseif self.writeMethod ~= "io" and self:writeWithXml(values) then
+        self.writeMethod = "xml"
+    end
+end
+
+T128Telemetry.FIELDS = {"seq", "active", "motor", "rpm", "minRpm", "maxRpm", "speed", "turn"}
+
+function T128Telemetry:writeWithIo(values)
+    if io == nil or io.open == nil then
+        return false
+    end
+    local file = io.open(self.path, "w")
+    if file == nil then
+        return false
+    end
+    local attrs = {}
+    for i, name in ipairs(T128Telemetry.FIELDS) do
+        attrs[i] = string.format('%s="%d"', name, values[i])
+    end
+    file:write("<telemetry " .. table.concat(attrs, " ") .. "/>\n")
+    file:close()
+    return true
+end
+
+function T128Telemetry:writeWithXml(values)
+    if createXMLFile == nil or setXMLInt == nil or saveXMLFile == nil then
+        return false
+    end
+    if self.xml == nil then
+        local xml = createXMLFile("t128Telemetry", self.path, "telemetry")
+        if xml == nil or xml == 0 then
+            return false
+        end
+        self.xml = xml
+    end
+    for i, name in ipairs(T128Telemetry.FIELDS) do
+        setXMLInt(self.xml, "telemetry#" .. name, values[i])
+    end
+    saveXMLFile(self.xml)
+    return true
 end
 
 addModEventListener(T128Telemetry)

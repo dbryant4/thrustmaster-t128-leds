@@ -7,8 +7,11 @@ Thrustmaster T128 (Xbox model). The wheel has no documented LED API and Fanaleds
 support it, so the LED protocol here was reverse-engineered from a capture of the Thrustmaster
 Windows driver.
 
-The longer-term goal is one Windows app that also drives force feedback on a MOZA flight yoke
-used as a steering wheel. That part has not been started.
+Its sister project, [moza-farmsim-link](https://github.com/dbryant4/moza-farmsim-link), does
+force feedback for FS25 on a MOZA flight yoke. The two are independent of each other.
+
+**Download:** the [latest release](https://github.com/dbryant4/thrustmaster-t128-leds/releases/latest) has one Windows zip with
+the bridge, its launcher, the FS25 mod and the [install guide](docs/INSTALL.md).
 
 ## Status
 
@@ -17,7 +20,6 @@ used as a steering wheel. That part has not been started.
 | T128 LED protocol | Decoded and confirmed on the wheel with the tools in `t128-c/` |
 | LED bridge (`bridge/`) | Written, builds, logic unit-tested. **Not yet run against the wheel** |
 | FS25 telemetry mod (`fs-mod/`) | Written, tested against a mock of the game API. **Not yet run in the game** |
-| MOZA force feedback | Not started (needs the MOZA SDK in `./sdk/`) |
 
 The first real run should answer two open questions: whether the wheel accepts LED packets
 while FS25 has it open for input and force feedback (the earlier tools were only run with
@@ -46,12 +48,14 @@ per-LED control and a left signal can't light the left LEDs only.
 You need a Windows PC with the Thrustmaster driver installed (it switches the wheel from Xbox
 mode to PC mode when the wheel is plugged in) and Farming Simulator 25.
 
-1. **Install the mod.** Copy the `fs-mod/FS25_T128Telemetry` folder into
+Download and unzip the [latest release](https://github.com/dbryant4/thrustmaster-t128-leds/releases/latest), or build it
+yourself (see [Building and testing](#building-and-testing)). [docs/INSTALL.md](docs/INSTALL.md)
+is the full guide; in short:
+
+1. **Install the mod.** Copy `FS25_T128Telemetry.zip`, still zipped, into
    `Documents\My Games\FarmingSimulator2025\mods\` and enable *T128 LED Telemetry* when you
    load your savegame.
-2. **Test the wheel on its own.** Build `bridge/fs25_t128_leds.exe` (see
-   [Building and testing](#building-and-testing); it is not checked in), copy it to the PC and
-   run it with the game closed:
+2. **Test the wheel on its own.** Run the bridge with the game closed:
 
    ```
    fs25_t128_leds.exe --fake
@@ -59,8 +63,8 @@ mode to PC mode when the wheel is plugged in) and Farming Simulator 25.
 
    It should print `Wheel connected` and loop through an RPM sweep, right signal, left signal
    and hazards every 40 seconds.
-3. **Run it with the game.** Start `fs25_t128_leds.exe` with no arguments, before or after the
-   game. The status line shows what it sees:
+3. **Run it with the game.** Start `Start T128 LEDs.bat` (or `fs25_t128_leds.exe` with no
+   arguments), before or after the game. The status line shows what it sees:
 
    ```
    game driving wheel ok      rpm 1450/2200   17 km/h  signal LEFT   LEDs ###.
@@ -87,8 +91,8 @@ If the mod does not appear in the game or `game waiting` never clears, look in
 - If the wheel is plugged in but the mod says it is not, the game is calling it something
   unexpected. Add a lower-case piece of the listed name to `DEVICE_NAMES` at the top of
   `T128Telemetry.lua` (it matches `thrustmaster`, `t128` and `advance racer` by default).
-- A `descVersion` complaint means the value in `modDesc.xml` (currently 92) needs changing to
-  match your game version.
+- A `descVersion` complaint means the value in `modDesc.xml` (currently 111, which FS25 1.24
+  accepts) is newer than your game; update the game or lower the value.
 
 ## How it works
 
@@ -98,8 +102,8 @@ FS25 (Lua mod) ──► telemetry.xml ──► fs25_t128_leds.exe ──► T1
 ```
 
 FS25 mod scripts cannot open sockets or talk to USB devices, so the mod rewrites a one-line
-XML file through the game's own XML functions, and detects the wheel by name from the game's
-controller list:
+file (with `io.open`, falling back to the game's XML functions if that is refused), and detects
+the wheel by name from the game's controller list:
 
 ```xml
 <telemetry seq="9" active="1" motor="1" rpm="1450" minRpm="850" maxRpm="2200" speed="17" turn="2"/>
@@ -122,8 +126,12 @@ controller list:
 | `bridge/t128_hid.h` | Windows HID: finds the wheel, sends packets, keepalive |
 | `bridge/t128_logic.h` | Portable: framing and CRC, telemetry parser, RPM and signal logic |
 | `bridge/test_logic.c` | Unit tests for `t128_logic.h`, run on any OS |
+| `bridge/windows/` | The launcher batch file shipped in the release |
 | `fs-mod/FS25_T128Telemetry/` | The FS25 mod (`modDesc.xml`, `T128Telemetry.lua`, icon) |
-| `fs-mod/test/run_mock.lua` | Runs the mod against stubs of the game functions it calls |
+| `fs-mod/tests/run_mock.lua` | Runs the mod against stubs of the game functions it calls |
+| `fs-mod/package.sh` | Tests the mod and zips it the way FS25 expects |
+| `scripts/package-release.sh` | Builds the release zip into `dist/` |
+| `docs/INSTALL.md` | Install guide, also shipped in the release |
 | `t128-c/` | Standalone Windows tools from the reverse engineering (below) |
 | `tools/` | Mac/Linux probes from the reverse engineering (below) |
 | `CLAUDE.md` | Full protocol notes, force feedback plan and task list |
@@ -146,10 +154,18 @@ reports, not for driving LEDs.
 
 ## Building and testing
 
-The Windows programs cross-compile from macOS or Linux with mingw-w64:
+The Windows programs cross-compile from macOS or Linux with mingw-w64 (`brew install mingw-w64`).
+To run the tests, build the bridge and the mod, and assemble the release zip in one step:
 
 ```bash
-x86_64-w64-mingw32-gcc -O2 -static bridge/fs25_t128_leds.c -o bridge/fs25_t128_leds.exe -lhid -lsetupapi
+scripts/package-release.sh
+```
+
+That needs mingw-w64, a host C compiler, `lua` and `zip`, and refuses to build if the bridge
+and mod version numbers differ. To build pieces by hand:
+
+```bash
+x86_64-w64-mingw32-gcc -O2 -static bridge/fs25_t128_leds.c -o fs25_t128_leds.exe -lhid -lsetupapi
 ```
 
 ```bash
@@ -163,7 +179,7 @@ cc bridge/test_logic.c -o /tmp/test_logic && /tmp/test_logic
 ```
 
 ```bash
-lua fs-mod/test/run_mock.lua /tmp/fs25-mock
+lua fs-mod/tests/run_mock.lua /tmp/fs25-mock
 ```
 
 The Python probes need `pip install pyusb` (`tm_mode_switch.py`, `gip_*.py`) or
@@ -206,15 +222,14 @@ The Python probes need `pip install pyusb` (`tm_mode_switch.py`, `gip_*.py`) or
   the game yet. A different Thrustmaster device (pedals, shifter, joystick) also counts as a
   match.
 - The mod icon is a generated placeholder.
-- The bridge is plain C for now. `CLAUDE.md` plans to pick C++ or C# once the MOZA SDK is in
-  `./sdk/`, and port the LED code to match.
 
 ## Roadmap
 
 1. Run the bridge and mod on the real setup; tune thresholds in-game.
-2. Add the MOZA SDK and build the force feedback stage (fixed spring and damper first, then
-   speed-scaled centering, then rumble and load).
-3. Extend the mod with the extra fields force feedback needs: steering angle, wheel load and
-   slip, ground type, implement state.
+2. Find out whether the first telemetry field rescales the LED thresholds.
+3. Fix the review findings in the `t128-c/` tools (device matching by product ID, shared header).
 
-This is a personal project and is not affiliated with Thrustmaster, MOZA or GIANTS Software.
+## Licence
+
+MIT, see [LICENSE](LICENSE). This is a personal project and is not affiliated with Thrustmaster,
+MOZA or GIANTS Software.

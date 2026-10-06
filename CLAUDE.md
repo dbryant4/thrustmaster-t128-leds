@@ -82,9 +82,14 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
   `t128_hid.h` is the Windows HID side, `t128_logic.h` the portable framing/parser/LED logic.
   `--fake` plays a built-in telemetry loop. Tests: `cc bridge/test_logic.c -o /tmp/t && /tmp/t`.
 - `fs-mod/FS25_T128Telemetry/` (v0.1.0): writes `modSettings/FS25_T128Telemetry/telemetry.xml` at 20 Hz via
-  `createXMLFile`/`saveXMLFile`: `<telemetry seq active motor rpm minRpm maxRpm speed turn/>`
+  `io.open` (fallback `createXMLFile`/`saveXMLFile`): `<telemetry seq active motor rpm minRpm maxRpm speed turn/>`
   (turn: 0 off, 1 left, 2 right, 3 hazard). Writes only while `getGamepadName()` lists a controller matching
-  `DEVICE_NAMES` (thrustmaster / t128 / advance racer), rechecked every 2 s. Mock test: `lua fs-mod/test/run_mock.lua /tmp/fs25-mock`.
+  `DEVICE_NAMES` (thrustmaster / t128 / advance racer), rechecked every 2 s. Mock test: `lua fs-mod/tests/run_mock.lua /tmp/fs25-mock`.
+- Release: `scripts/package-release.sh` builds `dist/thrustmaster-t128-leds-<version>-windows.zip` (bridge exe,
+  launcher, mod zip, `docs/INSTALL.md`, licence). Version lives in three places that must agree:
+  `VERSION` in `bridge/fs25_t128_leds.c`, `modDesc.xml` and `T128Telemetry.VERSION` (four-part form).
+- The MOZA force feedback side lives in its own repo, `~/projects/moza-farmsim-link` (github.com/dbryant4/moza-farmsim-link).
+  Its mod is game-tested on FS25 1.24; check it for FS25 Lua API usage before guessing.
 - Neither the bridge nor the mod has been run on the wheel / in the game yet.
 
 ## Next tasks

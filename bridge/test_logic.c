@@ -1,5 +1,5 @@
 // Host-side tests for t128_logic.h. Runs anywhere: cc test_logic.c -o test_logic && ./test_logic
-// Pass a telemetry file as argv[1] to also check that it parses (used by fs-mod/test/run_mock.lua).
+// Pass a telemetry file as argv[1] to also check that it parses (used by fs-mod/tests/run_mock.lua).
 #include <stdio.h>
 #include "t128_logic.h"
 
