@@ -10,7 +10,7 @@
 
 T128Telemetry = {}
 
-T128Telemetry.VERSION = "0.1.1.0"   -- same as modDesc.xml and the bridge (checked by scripts/package-release.sh)
+T128Telemetry.VERSION = "0.1.2.0"   -- same as modDesc.xml and the bridge (checked by scripts/package-release.sh)
 T128Telemetry.WRITE_INTERVAL_MS = 50
 T128Telemetry.FOLDER = "modSettings/FS25_T128Telemetry/"
 T128Telemetry.FILE = "telemetry.xml"

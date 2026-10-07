@@ -98,8 +98,19 @@ static void telemetry_fake(unsigned nowMs, Telemetry *t) {
 
 // ---- LED logic ------------------------------------------------------------
 
-// 1/2/3/4 LEDs at 55/68/80/92% of max RPM, firmware flash at 95%.
-static const double RPM_LED_ON[5] = {0.55, 0.68, 0.80, 0.92, 0.95};
+// Where the engine is between its own idle (0) and max RPM (1). Vehicles idle and top out
+// at different speeds, so the bar is spread over each one's own range. With no usable idle
+// figure it falls back to the share of max RPM.
+static double rpm_fraction(const Telemetry *t) {
+    if (t->maxRpm <= 0) return 0;
+    if (t->minRpm <= 0 || t->minRpm >= t->maxRpm) return (double)t->rpm / t->maxRpm;
+    double f = (double)(t->rpm - t->minRpm) / (t->maxRpm - t->minRpm);
+    return f < 0 ? 0 : f;
+}
+
+// 1/2/3/4 LEDs at 25/45/65/85% of the way from idle to max RPM, firmware flash at 95%.
+// For a tractor idling at 850 with a 2200 max that is 1190/1460/1730/2000 and 2130 rpm.
+static const double RPM_LED_ON[5] = {0.25, 0.45, 0.65, 0.85, 0.95};
 #define RPM_LED_HYST 0.015   // a level is held until RPM falls this far below its threshold
 
 // prev = level returned last time; stops a threshold-straddling RPM from flickering.
@@ -122,7 +133,7 @@ static int signal_leds(int turn, unsigned phaseMs) {
     }
 }
 
-#define IDLE_BLINK_MS 1000   // LED 1 on for this long, then off for this long
+#define IDLE_BLINK_DEFAULT_MS 500   // LED 1 on for this long, then off for this long
 
 typedef struct {
     int turn;            // signal currently animating
@@ -134,7 +145,7 @@ typedef struct {
 
 typedef struct {
     int allowFlash;      // let the firmware flash near max RPM
-    int idleBlink;       // blink LED 1 slowly while the engine runs below the bar's first step
+    int idleBlinkMs;     // blink LED 1 while the engine runs below the bar's first step: ms on, ms off; 0 = no blink
 } LedOptions;
 
 // Returns LEDs to light: 0-4, or 5 for the firmware flash. Signals override RPM.
@@ -143,11 +154,11 @@ static int led_update(LedState *s, const Telemetry *t, unsigned nowMs, LedOption
     if (t->turn != s->turn) { s->turn = t->turn; s->turnStart = nowMs; }
     if (s->turn != TURN_OFF) { s->rpmLit = 0; s->idling = 0; return signal_leds(s->turn, nowMs - s->turnStart); }
     if (!t->motor || t->maxRpm <= 0) { s->rpmLit = 0; s->idling = 0; return 0; }
-    s->rpmLit = rpm_leds((double)t->rpm / t->maxRpm, s->rpmLit, opt.allowFlash);
-    if (s->rpmLit > 0 || !opt.idleBlink) { s->idling = 0; return s->rpmLit; }
+    s->rpmLit = rpm_leds(rpm_fraction(t), s->rpmLit, opt.allowFlash);
+    if (s->rpmLit > 0 || opt.idleBlinkMs <= 0) { s->idling = 0; return s->rpmLit; }
     // "Engine is running": starts lit, so starting the engine shows at once.
     if (!s->idling) { s->idling = 1; s->idleStart = nowMs; }
-    return ((nowMs - s->idleStart) / IDLE_BLINK_MS) % 2 ? 0 : 1;
+    return ((nowMs - s->idleStart) / (unsigned)opt.idleBlinkMs) % 2 ? 0 : 1;
 }
 
 #endif

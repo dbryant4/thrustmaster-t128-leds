@@ -67,8 +67,12 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
 - The firmware draws a bar from LED 1 upward; no per-LED control found. Fanaleds doesn't support the T128.
 
 ### Behaviour (validated in `t128-c/t128_signals_demo.c`)
-- RPM: 1/2/3/4 LEDs at 55/68/80/92% of max RPM; firmware flash at ≥95%.
-- Idle (bridge only, not in the demo, not yet seen on hardware): engine running below 55% blinks LED 1, 1 s on / 1 s off.
+- RPM (demo): 1/2/3/4 LEDs at 55/68/80/92% of max RPM; firmware flash at ≥95%.
+- RPM (bridge, since 0.1.2): scaled per vehicle over idle→max, `(rpm - minRpm) / (maxRpm - minRpm)`;
+  1/2/3/4 LEDs at 25/45/65/85% of that range, flash at ≥95% (`RPM_LED_ON`, `rpm_fraction` in `t128_logic.h`).
+- Idle (bridge only, not in the demo): engine running below the first bar step blinks LED 1, 0.5 s on / 0.5 s off (`--idle-blink-ms`).
+  Seen working in the game on the wheel with 0.1.1 (at 1 s), which also means the mod, `bridge.xml` detection and LED
+  writes work while FS25 has the wheel open.
 - Right signal: 1→2→3→4→off, 130 ms steps (moves left→right).
 - Left signal: 4→3→2→1→off (bar drains right→left).
 - Hazards: all on/off, 380 ms half-period.
@@ -79,10 +83,10 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
   `x86_64-w64-mingw32-gcc -O2 -static file.c -o file.exe -lhid -lsetupapi`.
   `t128_signals_demo.c` is the reference LED driver to port into `bridge/`.
 - `tools/`: Mac/Linux probes (pyusb/hidapi scripts, WebHID page) used during reverse engineering.
-- `bridge/` (v0.1.1, LED stage only, C): `fs25_t128_leds.c` polls the mod's file and drives the LEDs;
+- `bridge/` (v0.1.2, LED stage only, C): `fs25_t128_leds.c` polls the mod's file and drives the LEDs;
   `t128_hid.h` is the Windows HID side, `t128_logic.h` the portable framing/parser/LED logic.
   `--fake` plays a built-in telemetry loop. Tests: `cc bridge/test_logic.c -o /tmp/t && /tmp/t`.
-- `fs-mod/FS25_T128Telemetry/` (v0.1.1): writes `modSettings/FS25_T128Telemetry/telemetry.xml` at 20 Hz via
+- `fs-mod/FS25_T128Telemetry/` (v0.1.2): writes `modSettings/FS25_T128Telemetry/telemetry.xml` at 20 Hz via
   `io.open` (fallback `createXMLFile`/`saveXMLFile`): `<telemetry seq active motor rpm minRpm maxRpm speed turn/>`
   (turn: 0 off, 1 left, 2 right, 3 hazard). Must stay inert for players without the wheel
   (every multiplayer player loads the mod): it is on only while the bridge's heartbeat `bridge.xml`
@@ -94,10 +98,11 @@ Open question: whether the first field is max RPM (would rescale thresholds). Th
   `VERSION` in `bridge/fs25_t128_leds.c`, `modDesc.xml` and `T128Telemetry.VERSION` (four-part form).
 - The MOZA force feedback side lives in its own repo, `~/projects/moza-farmsim-link` (github.com/dbryant4/moza-farmsim-link).
   Its mod is game-tested on FS25 1.24; check it for FS25 Lua API usage before guessing.
-- Neither the bridge nor the mod has been run on the wheel / in the game yet.
+- First real run (0.1.1): mod loads, finds the bridge, and the idle blink shows on the wheel with FS25 running.
+  RPM bar, signals and hazards not yet confirmed in the game; multiplayer untested.
 
 ## Next tasks
-1. Run the LED bridge + mod on the real setup (does the wheel accept LED packets while FS25 has it open?).
+1. Confirm the RPM bar, signals and hazards in the game; tune `RPM_LED_ON` and the idle blink rate.
 2. Read `./sdk/` (MOZA) and pick C++ or C#; port the bridge into the same language.
 3. MOZA fixed spring+damper MVP; extend the mod with steering angle, wheel load/slip, ground type, implement state.
 4. Tune the FFB model and LED thresholds in-game.

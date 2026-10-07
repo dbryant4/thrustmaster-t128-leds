@@ -3,9 +3,9 @@
 Farming Simulator 25 engine RPM, turn signals and hazards on the four rev LEDs of a Thrustmaster
 T128 wheel.
 
-**This version has not been run on a real setup yet.** The LED protocol was confirmed on the
-wheel with standalone tools, and the bridge and mod pass their automated tests, but the two have
-not been used together with the game. See "Known rough edges" for what to expect.
+**Early version.** It runs in the game on the wheel, but so far only the idle blink has been
+confirmed there; the RPM bar, turn signals and hazards have only been checked by automated
+tests. See "Known rough edges" for what to expect.
 
 ## What you need
 
@@ -47,9 +47,9 @@ window or press Ctrl+C in it.
 
 | In the game | LEDs |
 |---|---|
-| Engine running at low RPM | First LED blinks slowly |
-| Engine RPM | 1 / 2 / 3 / 4 LEDs at 55 / 68 / 80 / 92% of the vehicle's max RPM |
-| RPM at 95% of max or more | All four flash |
+| Engine running at low RPM | First LED blinks, half a second on, half a second off |
+| Engine RPM | 1 / 2 / 3 / 4 LEDs at 25 / 45 / 65 / 85% of the way from the vehicle's idle RPM to its max RPM |
+| RPM 95% of the way to max or more | All four flash |
 | Right turn signal | Bar fills left to right |
 | Left turn signal | Bar drains right to left |
 | Hazards | All four blink |
@@ -57,8 +57,9 @@ window or press Ctrl+C in it.
 
 Tractors spend a lot of time near max RPM. If the flashing gets tiresome, edit
 `Start T128 LEDs.bat` and change the line `fs25_t128_leds.exe %*` to
-`fs25_t128_leds.exe --no-flash %*`; the bar then stops at four LEDs. `--no-idle-blink` in the
-same place turns off the slow blink at low RPM.
+`fs25_t128_leds.exe --no-flash %*`; the bar then stops at four LEDs. In the same place,
+`--idle-blink-ms 250` makes the blink at low RPM faster (the number is milliseconds on, then off;
+the default is 500) and `--no-idle-blink` turns it off.
 
 ## If it does not work
 
@@ -72,8 +73,9 @@ same place turns off the slow blink at low RPM.
   `idle until the T128 LED bridge reports the wheel` when the savegame loads and
   `wheel available, writing ...` a second or two after the bridge finds the wheel. If it stays
   idle, please report it along with those log lines.
-- **`wheel ok` but the LEDs stay dark while the game runs:** the wheel may not accept LED data
-  while the game is using it. This is the main untested point; please report it.
+- **`wheel ok` and `game driving` but the LEDs stay dark:** check the engine is running, then
+  close Fanaleds and the Thrustmaster control panel and restart the bridge. If it persists,
+  please report it.
 
 ## What it changes on your PC
 
@@ -99,9 +101,9 @@ installed.
 
 ## Known rough edges
 
-- Not yet run in the game or against the wheel as a whole (see the top of this page).
+- Only the idle blink has been confirmed in the game so far (see the top of this page).
 - The RPM thresholds were chosen on the bench and will probably want tuning for tractors.
 - The wheel's firmware only draws a bar starting from the left LED, so a left signal cannot light
   just the left LEDs.
-- The bridge and the mod must be the same version: 0.1.0 of either does not work with 0.1.1 of
-  the other.
+- The bridge and the mod must be the same version: 0.1.0 of either does not work with a later version of
+  the other. 0.1.1 and 0.1.2 can be mixed: only the bridge changed between them.

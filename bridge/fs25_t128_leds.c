@@ -8,7 +8,7 @@
 #include <string.h>
 #include "t128_hid.h"
 
-#define VERSION "0.1.1"
+#define VERSION "0.1.2"
 #define LOOP_MS 50            // 20 Hz telemetry to the wheel
 #define STALE_MS 1500         // no new write from the game for this long = LEDs off
 #define REOPEN_MS 1000
@@ -66,22 +66,28 @@ static int write_beat(const char *dir, int beat, int wheel) {
 }
 
 static void usage(void) {
-    printf("Usage: fs25_t128_leds [--fake] [--no-flash] [--no-idle-blink] [--file <telemetry.xml>]\n\n"
+    printf("Usage: fs25_t128_leds [--fake] [--no-flash] [--idle-blink-ms N] [--no-idle-blink] [--file <telemetry.xml>]\n\n"
            "  --fake       ignore the game and play a built-in RPM/signal loop (hardware test)\n"
            "  --no-flash   cap the RPM bar at 4 LEDs instead of flashing near max RPM\n"
-           "  --no-idle-blink  keep the LEDs dark at low RPM instead of slowly blinking the first one\n"
+           "  --idle-blink-ms N  how long the first LED is on, then off, while the engine idles\n"
+           "                     (100-5000, default 500)\n"
+           "  --no-idle-blink  keep the LEDs dark at low RPM instead of blinking the first one\n"
            "  --file PATH  telemetry file; default is\n"
            "               Documents\\My Games\\FarmingSimulator2025\\modSettings\\FS25_T128Telemetry\\telemetry.xml\n");
 }
 
 int main(int argc, char **argv) {
     int fake = 0;
-    LedOptions opt = {1, 1};
+    LedOptions opt = {1, IDLE_BLINK_DEFAULT_MS};
     char path[MAX_PATH * 2] = {0};
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--fake")) fake = 1;
         else if (!strcmp(argv[i], "--no-flash")) opt.allowFlash = 0;
-        else if (!strcmp(argv[i], "--no-idle-blink")) opt.idleBlink = 0;
+        else if (!strcmp(argv[i], "--no-idle-blink")) opt.idleBlinkMs = 0;
+        else if (!strcmp(argv[i], "--idle-blink-ms") && i + 1 < argc) {
+            int ms = atoi(argv[++i]);   // the wheel is updated every 50 ms, so much below 100 cannot be shown
+            opt.idleBlinkMs = ms < 100 ? 100 : ms > 5000 ? 5000 : ms;
+        }
         else if (!strcmp(argv[i], "--file") && i + 1 < argc) snprintf(path, sizeof(path), "%s", argv[++i]);
         else { usage(); return strcmp(argv[i], "--help") ? 1 : 0; }
     }

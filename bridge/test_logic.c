@@ -42,18 +42,30 @@ int main(int argc, char **argv) {
     CHECK(strstr(beat, "beat=\"8\" wheel=\"0\"") != NULL);
 
     // RPM bar: 55/68/80/92% and flash at 95%
-    CHECK(rpm_leds(0.40, 0, 1) == 0);
-    CHECK(rpm_leds(0.55, 0, 1) == 1);
-    CHECK(rpm_leds(0.68, 0, 1) == 2);
-    CHECK(rpm_leds(0.80, 0, 1) == 3);
-    CHECK(rpm_leds(0.92, 0, 1) == 4);
+    CHECK(rpm_leds(0.20, 0, 1) == 0);
+    CHECK(rpm_leds(0.25, 0, 1) == 1);
+    CHECK(rpm_leds(0.45, 0, 1) == 2);
+    CHECK(rpm_leds(0.65, 0, 1) == 3);
+    CHECK(rpm_leds(0.85, 0, 1) == 4);
     CHECK(rpm_leds(0.95, 0, 1) == 5);
     CHECK(rpm_leds(1.10, 0, 0) == 4);       // --no-flash
     // Hysteresis: holds a level just under its threshold, lets go 1.5% lower
-    CHECK(rpm_leds(0.675, 2, 1) == 2);
-    CHECK(rpm_leds(0.660, 2, 1) == 1);
-    CHECK(rpm_leds(0.675, 1, 1) == 1);
-    CHECK(rpm_leds(0.30, 5, 1) == 0);
+    CHECK(rpm_leds(0.440, 2, 1) == 2);
+    CHECK(rpm_leds(0.430, 2, 1) == 1);
+    CHECK(rpm_leds(0.440, 1, 1) == 1);
+    CHECK(rpm_leds(0.10, 5, 1) == 0);
+
+    // The bar spans each vehicle's own idle-to-max range
+    Telemetry v = {1, 1, 1, 850, 850, 2200, 0, TURN_OFF};
+    CHECK(rpm_fraction(&v) == 0.0);                            // at idle
+    v.rpm = 2200; CHECK(rpm_fraction(&v) == 1.0);              // at max
+    v.rpm = 1525; CHECK(rpm_fraction(&v) == 0.5);
+    v.rpm = 700;  CHECK(rpm_fraction(&v) == 0.0);              // dipping under idle is still idle
+    Telemetry w = {1, 1, 1, 1650, 1000, 2300, 0, TURN_OFF};    // another vehicle, same place in its range
+    CHECK(rpm_fraction(&w) == 0.5);
+    w.minRpm = 0;    CHECK(rpm_fraction(&w) == 1650.0 / 2300); // no idle figure: share of max
+    w.minRpm = 2300; CHECK(rpm_fraction(&w) == 1650.0 / 2300); // nonsense range: share of max
+    w.maxRpm = 0;    CHECK(rpm_fraction(&w) == 0.0);
 
     // Signals, 130 ms steps
     int right[] = {1, 2, 3, 4, 0, 0, 1}, left[] = {4, 3, 2, 1, 0, 0, 4};
@@ -65,8 +77,8 @@ int main(int argc, char **argv) {
 
     // Whole pipeline
     LedState s = {0};
-    LedOptions opt = {1, 1}, noBlink = {1, 0};
-    Telemetry d = {1, 1, 1, 1900, 850, 2200, 12, TURN_OFF};   // 86% -> 3 LEDs
+    LedOptions opt = {1, 1000}, noBlink = {1, 0}, quick = {1, IDLE_BLINK_DEFAULT_MS};
+    Telemetry d = {1, 1, 1, 1900, 850, 2200, 12, TURN_OFF};   // 78% of the range -> 3 LEDs
     CHECK(led_update(&s, &d, 1000, opt) == 3);
     d.turn = TURN_LEFT;                                        // signal overrides RPM, restarts its phase
     CHECK(led_update(&s, &d, 5000, opt) == 4);
@@ -82,15 +94,15 @@ int main(int argc, char **argv) {
     d.active = 1; d.maxRpm = 0;                                // never divide by a zero max
     CHECK(led_update(&s, &d, 9100, opt) == 0);
 
-    // Idle blink: engine running below the first step blinks LED 1, 1 s on / 1 s off
+    // Idle blink: engine running below the first step blinks LED 1 (here 1 s on / 1 s off)
     LedState b = {0};
-    Telemetry idle = {1, 1, 1, 850, 850, 2200, 0, TURN_OFF};   // 39%
+    Telemetry idle = {1, 1, 1, 850, 850, 2200, 0, TURN_OFF};   // at idle
     CHECK(led_update(&b, &idle, 50000, opt) == 1);             // lit as soon as the engine runs
     CHECK(led_update(&b, &idle, 50999, opt) == 1);
     CHECK(led_update(&b, &idle, 51000, opt) == 0);
     CHECK(led_update(&b, &idle, 51999, opt) == 0);
     CHECK(led_update(&b, &idle, 52000, opt) == 1);
-    idle.rpm = 1300;                                           // 59%: the bar takes over, steady
+    idle.rpm = 1300;                                           // a third of the way up: the bar takes over, steady
     CHECK(led_update(&b, &idle, 52500, opt) == 1);
     CHECK(led_update(&b, &idle, 53100, opt) == 1);
     CHECK(led_update(&b, &idle, 54100, opt) == 1);
@@ -105,6 +117,13 @@ int main(int argc, char **argv) {
     idle.motor = 1;                                            // --no-idle-blink: dark below the first step
     CHECK(led_update(&b, &idle, 59000, noBlink) == 0);
     CHECK(led_update(&b, &idle, 60000, noBlink) == 0);
+
+    LedState q = {0};                                          // the default rate: 0.5 s on / 0.5 s off
+    CHECK(IDLE_BLINK_DEFAULT_MS == 500);
+    CHECK(led_update(&q, &idle, 70000, quick) == 1);
+    CHECK(led_update(&q, &idle, 70499, quick) == 1);
+    CHECK(led_update(&q, &idle, 70500, quick) == 0);
+    CHECK(led_update(&q, &idle, 71000, quick) == 1);
 
     // Fake source stays in range for a whole cycle
     for (unsigned ms = 0; ms < 40000; ms += 50) {

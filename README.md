@@ -1,6 +1,6 @@
 # Farming Simulator 25 → Thrustmaster T128 rev LEDs
 
-**Version 0.1.1**
+**Version 0.1.2**
 
 Shows Farming Simulator 25 engine RPM, turn signals and hazards on the four rev LEDs of a
 Thrustmaster T128 (Xbox model). The wheel has no documented LED API and Fanaleds does not
@@ -18,20 +18,19 @@ the bridge, its launcher, the FS25 mod and the [install guide](docs/INSTALL.md).
 | Part | State |
 |---|---|
 | T128 LED protocol | Decoded and confirmed on the wheel with the tools in `t128-c/` |
-| LED bridge (`bridge/`) | Written, builds, logic unit-tested. **Not yet run against the wheel** |
-| FS25 telemetry mod (`fs-mod/`) | Written, tested against a mock of the game API. **Not yet run in the game** |
+| LED bridge (`bridge/`) | Runs against the wheel while FS25 is using it (first seen with 0.1.1). Logic unit-tested |
+| FS25 telemetry mod (`fs-mod/`) | Loads in the game and finds the bridge (first seen with 0.1.1). Tested against a mock of the game API |
 
-The first real run should answer two open questions: whether the wheel accepts LED packets
-while FS25 has it open for input and force feedback (the earlier tools were only run with
-games closed), and whether the mod loads cleanly in your game version.
+Seen working in the game so far: the idle blink. The RPM bar, turn signals and hazards use the
+same path but have not been confirmed in the game yet, and multiplayer is untested.
 
 ## What the LEDs do
 
 | Game state | LEDs |
 |---|---|
-| Engine running, RPM below 55% of max | First LED blinks slowly, 1 s on / 1 s off. `--no-idle-blink` keeps it dark |
-| Engine RPM | 1 / 2 / 3 / 4 LEDs at 55 / 68 / 80 / 92% of the vehicle's max RPM |
-| RPM ≥ 95% of max | All four flash (done by the wheel firmware). `--no-flash` holds 4 LEDs instead |
+| Engine running, RPM below the bar's first step | First LED blinks, 0.5 s on / 0.5 s off. `--idle-blink-ms` changes the rate, `--no-idle-blink` keeps it dark |
+| Engine RPM | 1 / 2 / 3 / 4 LEDs at 25 / 45 / 65 / 85% of the way from the vehicle's idle RPM to its max RPM |
+| RPM ≥ 95% of the way to max | All four flash (done by the wheel firmware). `--no-flash` holds 4 LEDs instead |
 | Right turn signal | Bar fills left → right: 1, 2, 3, 4, off, 130 ms per step |
 | Left turn signal | Bar drains right → left: 4, 3, 2, 1, off |
 | Hazards | All four blink, 380 ms on / 380 ms off |
@@ -84,7 +83,8 @@ Options:
 |---|---|
 | `--fake` | Ignore the game and play the built-in loop |
 | `--no-flash` | Cap the RPM bar at 4 LEDs. Useful because tractors spend a lot of time near max RPM |
-| `--no-idle-blink` | Keep the LEDs dark at low RPM instead of slowly blinking the first one |
+| `--idle-blink-ms N` | How long the first LED stays on, then off, while the engine idles. 100 to 5000, default 500 |
+| `--no-idle-blink` | Keep the LEDs dark at low RPM instead of blinking the first one |
 | `--file PATH` | Read telemetry from another path. The default is `Documents\My Games\FarmingSimulator2025\modSettings\FS25_T128Telemetry\telemetry.xml` |
 
 If the mod does not appear in the game or `game waiting` never clears, look in
@@ -233,9 +233,9 @@ The Python probes need `pip install pyusb` (`tm_mode_switch.py`, `gip_*.py`) or
 
 ## Known limitations
 
-- The bridge and mod have not been run on real hardware or in the game yet (see Status).
-- LED thresholds are percentages of max RPM, chosen on the bench. They will likely need
-  tuning for tractors; the constants are `RPM_LED_ON` in `bridge/t128_logic.h`.
+- Only the idle blink has been confirmed in the game so far (see Status).
+- The bar's steps are fixed points between each vehicle's idle and max RPM as the game reports
+  them. They may still want tuning; the constants are `RPM_LED_ON` in `bridge/t128_logic.h`.
 - It is unknown whether the first telemetry field (`0x0854` = 2132) is a max-RPM value. If it
   is, the thresholds above rescale with it.
 - Signal animation steps land on the bridge's 50 ms tick, so a 130 ms step is really 100–150 ms.
@@ -246,7 +246,7 @@ The Python probes need `pip install pyusb` (`tm_mode_switch.py`, `gip_*.py`) or
 
 ## Roadmap
 
-1. Run the bridge and mod on the real setup; tune thresholds in-game.
+1. Confirm the RPM bar, signals and hazards in the game; tune the bar's steps.
 2. Find out whether the first telemetry field rescales the LED thresholds.
 3. Fix the review findings in the `t128-c/` tools (device matching by product ID, shared header).
 
